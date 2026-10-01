@@ -72,6 +72,23 @@ pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);borde
 .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
 .box{background:var(--panel);border-radius:14px;padding:20px;max-width:380px;width:100%}.box p{margin:0 0 14px;font-weight:700}.box input{margin-bottom:12px}
+.pr{display:grid;grid-template-columns:1fr auto;gap:0 8px;margin-bottom:12px}.pr .bar{grid-column:1/-1}.pr small{color:var(--mute)}
+.hr{display:flex;gap:6px;align-items:flex-end;height:130px;overflow-x:auto}
+.hr .c{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;min-width:34px}
+.hr .c i{display:block;width:22px;background:var(--brick);border-radius:4px 4px 0 0}.hr small{color:var(--mute)}
+.two .go{font-size:.95rem;padding:14px 8px}
+#cupom{display:none}
+@media print{
+  @page{margin:4mm}
+  body{background:#fff}
+  .top,.wrap,.ov,.toast{display:none!important}
+  #cupom{display:block;width:72mm;margin:0 auto;color:#000;font:13px/1.35 ui-monospace,Menlo,monospace;text-align:center}
+  #cupom img{width:60px;height:60px;border-radius:50%;filter:grayscale(1)}
+  #cupom .l{display:flex;justify-content:space-between;text-align:left}
+  #cupom .t{font-weight:700;font-size:15px}
+  #cupom hr{border:0;border-top:1px dashed #000;margin:8px 0}
+  #cupom h3{margin:4px 0}#cupom p{margin:2px 0}
+}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ok);color:#fff;padding:10px 18px;border-radius:999px;font-weight:700;opacity:0;pointer-events:none;transition:opacity .2s}
 .toast.on{opacity:1}
 [hidden]{display:none!important}
@@ -84,6 +101,7 @@ pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);borde
   <div class="tabs" role="tablist">
     <button role="tab" id="tabV" aria-selected="true">Vendas</button>
     <button role="tab" id="tabC" aria-selected="false">Caixa</button>
+    <button role="tab" id="tabP" aria-selected="false">Painel</button>
   </div>
 </div>
 <div class="wrap">
@@ -110,7 +128,7 @@ pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);borde
         </div></div>
       <div class="f" id="cashBox"><label for="recebido">Valor recebido (R$)</label><input id="recebido" type="number" min="0" step="0.50" inputmode="decimal" placeholder="Ex.: 100"><div class="hint" id="troco"></div></div>
       <div class="total"><span>Total</span><span class="big" id="total">R$ 0,00</span></div>
-      <button class="go" id="go">Registrar venda</button>
+      <div class="two"><button class="go" id="go">Registrar venda</button><button class="go" id="goP" style="background:var(--brick);color:#fff">🖨 Registrar e imprimir</button></div>
     </section>
     <div class="col">
       <section>
@@ -166,7 +184,18 @@ pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);borde
       </section>
     </div>
   </div>
+  <div id="viewP" class="grid" hidden>
+    <div class="col">
+      <section><h2>Vendas por forma de pagamento</h2><div id="pPay"></div></section>
+      <section><h2>Frangos vendidos por hora</h2><div class="hr" id="pHora"></div></section>
+    </div>
+    <div class="col">
+      <section><h2>Pedidos do dia</h2><ul class="list" id="pPed"></ul></section>
+      <section><h2>Últimos fechamentos</h2><div id="pFech"></div></section>
+    </div>
+  </div>
 </div>
+<div id="cupom"></div>
 <div id="dlg" class="ov" hidden><div class="box" role="dialog" aria-modal="true"><p id="dMsg"></p><input id="dIn" type="number" min="0" inputmode="numeric" hidden><div class="two"><button class="btn o" id="dNo">Cancelar</button><button class="btn" id="dYes">OK</button></div></div></div>
 <div class="toast" id="toast" role="status"></div>
 
@@ -174,7 +203,7 @@ pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);borde
 const $=id=>document.getElementById(id);
 const brl=v=>v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const KEY="frango-v2";
-let S={preco:45,estoque:0,fundo:0,vendas:[],ret:[],fech:[]}, metodo="Dinheiro";
+let S={preco:45,estoque:0,fundo:0,seq:0,vendas:[],ret:[],fech:[]}, metodo="Dinheiro";
 try{const s=localStorage.getItem(KEY);
   if(s)S=Object.assign(S,JSON.parse(s));
   else{const v=localStorage.getItem("frango-vendas");if(v)S.vendas=JSON.parse(v)||[];
@@ -207,7 +236,7 @@ function calc(){
     if(r>=t){tr.textContent="Troco: "+brl(r-t);tr.className="hint good"}
     else{tr.textContent="Faltam "+brl(t-r);tr.className="hint bad"}}
   const cashOk=metodo!=="Dinheiro"||isNaN(r)||r>=t;
-  $("go").disabled=!(t>0&&cashOk&&!over);
+  $("go").disabled=$("goP").disabled=!(t>0&&cashOk&&!over);
   $("disp").className="hint"+(over?" bad":"");
   $("disp").textContent=over?"Só há "+S.estoque+" no estoque":"Disponível: "+S.estoque;
   S.preco=preco();save();
@@ -256,24 +285,52 @@ function render(){
   $("eMsg").textContent=S.estoque===0?"Estoque zerado":S.estoque<=5?"Estoque baixo":"";
   const ul=$("lista");ul.innerHTML=n?"":'<li class="empty">Nenhuma venda ainda.</li>';
   [...S.vendas].reverse().forEach(v=>{const li=document.createElement("li");
-    li.innerHTML=`<div><b>${v.qtd}× frango</b> · ${v.metodo}<br><small>${v.data||hoje()} às ${v.hora}</small></div><div><b>${brl(v.total)}</b><button aria-label="Excluir venda" data-id="${v.id}">✕</button></div>`;ul.appendChild(li)});
+    li.innerHTML=`<div><b>${v.qtd}× frango</b> · ${v.metodo}<br><small>${v.data||hoje()} às ${v.hora}</small></div><div><b>${brl(v.total)}</b><button aria-label="Imprimir pedido" data-p="${v.id}">🖨</button><button aria-label="Excluir venda" data-id="${v.id}">✕</button></div>`;ul.appendChild(li)});
   const lr=$("listaRet");lr.innerHTML=S.ret.length?"":'<li class="empty">Nenhuma retirada.</li>';
   S.ret.forEach(r=>{const li=document.createElement("li");
     li.innerHTML=`<div><b>${brl(r.total)}</b><br><small>${r.data||hoje()} às ${r.hora} · ${r.motivo||"sem motivo"}</small></div><button aria-label="Excluir retirada" data-r="${r.id}">✕</button>`;lr.appendChild(li)});
   const h=$("hist");h.innerHTML=S.fech.length?"":'<li class="empty">Nenhum fechamento ainda.</li>';
   [...S.fech].reverse().forEach(f=>{const li=document.createElement("li");
     li.innerHTML=`<div><b>${f.data}</b> ${f.hora}<br><small>${brl(f.total)} · ${f.diff===0?"confere":(f.diff>0?"sobra ":"falta ")+brl(Math.abs(f.diff))}</small></div><div class="acts"><button class="btn o" data-f="${f.id}">Ver</button>${f.vs?`<button class="btn o" data-o="${f.id}">Reabrir</button>`:""}<button class="btn o" data-e="${f.id}">Editar</button><button class="btn o" data-x="${f.id}">Excluir</button></div>`;h.appendChild(li)});
-  caixa();calc();
+  caixa();painel();calc();
 }
 
+function imprimir(v){
+  const logo=document.querySelector(".logo").src;
+  $("cupom").innerHTML=`<img src="${logo}" alt=""><h3>FRANGO DO JC</h3><p>${v.data||hoje()} ${v.hora}</p><p><b>PEDIDO Nº ${v.num||"—"}</b></p><hr>
+  <div class="l"><span>${v.qtd}× Frango assado</span><span>${brl(v.total)}</span></div>
+  <div class="l"><span>Valor unitário</span><span>${brl(v.preco||v.total/v.qtd)}</span></div><hr>
+  <div class="l t"><span>TOTAL</span><span>${brl(v.total)}</span></div>
+  <div class="l"><span>Pagamento</span><span>${v.metodo}</span></div>
+  ${v.rec?`<div class="l"><span>Recebido</span><span>${brl(v.rec)}</span></div><div class="l"><span>Troco</span><span>${brl(v.rec-v.total)}</span></div>`:""}
+  <hr><p>Obrigado pela preferência!</p>`;
+  setTimeout(()=>{try{window.print()}catch(e){toast("Não foi possível imprimir neste navegador")}},150)}
+document.addEventListener("click",e=>{const b=e.target.closest("button[data-p]");if(!b)return;
+  const v=S.vendas.find(x=>x.id===+b.dataset.p);if(v)imprimir(v)});
+function painel(){
+  const tot=soma();
+  $("pPay").innerHTML=[["Dinheiro","💵"],["Cartão","💳"],["Pix","⚡"]].map(([k,i])=>{
+    const v=soma(k),n=S.vendas.filter(x=>x.metodo===k).length;
+    return `<div class="pr"><div><b>${i} ${k}</b> <small>${n} venda(s)${tot?" · "+Math.round(v/tot*100)+"%":""}</small></div><b>${brl(v)}</b><div class="bar"><i style="width:${tot?v/tot*100:0}%"></i></div></div>`}).join("");
+  const h={};S.vendas.forEach(v=>{const k=(v.hora||"00").slice(0,2);h[k]=(h[k]||0)+v.qtd});
+  const ks=Object.keys(h).sort(),mx=Math.max(1,...Object.values(h));
+  $("pHora").innerHTML=ks.length?ks.map(k=>`<div class="c"><small>${h[k]}</small><i style="height:${Math.max(6,h[k]/mx*80)}px"></i><small>${k}h</small></div>`).join(""):'<span class="empty">Sem vendas ainda.</span>';
+  const pl=$("pPed");pl.innerHTML=S.vendas.length?"":'<li class="empty">Nenhum pedido hoje.</li>';
+  [...S.vendas].reverse().forEach(v=>{const li=document.createElement("li");
+    li.innerHTML=`<div><b>Pedido #${v.num||"—"}</b> · ${v.qtd}× frango<br><small>${v.metodo} · ${v.hora}</small></div><div><b>${brl(v.total)}</b><button aria-label="Imprimir pedido" data-p="${v.id}">🖨</button></div>`;pl.appendChild(li)});
+  const fs=S.fech.slice(-7),fm=Math.max(1,...fs.map(f=>f.total));
+  $("pFech").innerHTML=fs.length?fs.map(f=>`<div class="pr"><div><b>${f.data}</b></div><b>${brl(f.total)}</b><div class="bar"><i style="width:${f.total/fm*100}%"></i></div></div>`).join(""):'<span class="empty">Nenhum fechamento ainda.</span>';
+}
 $("pay").onclick=e=>{const b=e.target.closest("button");if(!b)return;metodo=b.dataset.m;
   document.querySelectorAll("#pay button").forEach(x=>x.setAttribute("aria-pressed",x===b));calc()};
 $("menos").onclick=()=>{$("qtd").value=Math.max(1,qtd()-1);calc()};
 $("mais").onclick=()=>{$("qtd").value=qtd()+1;calc()};
 ["preco","qtd","recebido"].forEach(i=>$(i).oninput=calc);
-$("go").onclick=()=>{const t=preco()*qtd();if(t<=0||qtd()>S.estoque)return;
-  S.vendas.push({id:Date.now(),qtd:qtd(),total:t,metodo,data:hoje(),hora:now()});S.estoque-=qtd();save();
-  $("qtd").value=1;$("recebido").value="";render();toast("Venda registrada")};
+function vender(pr){const t=preco()*qtd();if(t<=0||qtd()>S.estoque)return;
+  const rc=num("recebido"),v={id:Date.now(),num:++S.seq,qtd:qtd(),preco:preco(),total:t,metodo,rec:metodo==="Dinheiro"&&rc>=t?rc:0,data:hoje(),hora:now()};
+  S.vendas.push(v);S.estoque-=qtd();save();
+  $("qtd").value=1;$("recebido").value="";render();toast("Venda registrada");if(pr)imprimir(v)}
+$("go").onclick=()=>vender(false);$("goP").onclick=()=>vender(true);
 $("lista").onclick=e=>{const b=e.target.closest("button[data-id]");if(!b)return;
   const v=S.vendas.find(x=>x.id===+b.dataset.id);if(v)S.estoque+=v.qtd;
   S.vendas=S.vendas.filter(x=>x.id!==+b.dataset.id);save();render()};
@@ -297,7 +354,7 @@ $("fechar").onclick=async()=>{
   const f={id:Date.now(),data:hoje(),hora:now(),periodo:ds.length?ds.join(", "):hoje(),nVendas:S.vendas.length,frangos:S.vendas.reduce((a,v)=>a+v.qtd,0),
     din:soma("Dinheiro"),car:soma("Cartão"),pix:soma("Pix"),total:soma(),fundo:S.fundo,ret:soma(null,S.ret),
     esperado:esperado(),contado:c,vs:S.vendas.slice(),rl:S.ret.slice(),diff:Math.round((c-esperado())*100)/100,estoque:S.estoque};
-  S.fech.push(f);S.vendas=[];S.ret=[];S.fundo=0;$("fundo").value="";$("contado").value="";
+  S.fech.push(f);S.vendas=[];S.ret=[];S.fundo=0;S.seq=0;$("fundo").value="";$("contado").value="";
   save();render();mostrar(f);toast("Caixa fechado")};
 let atual=null;
 function mostrar(f){atual=f;$("rel").textContent=relatorio(f);$("rel").hidden=false;$("copiar").hidden=false}
@@ -332,9 +389,8 @@ $("hist").onclick=async e=>{const b=e.target.closest("button");if(!b)return;
 $("copiar").onclick=async()=>{try{await navigator.clipboard.writeText(relatorio(atual));toast("Relatório copiado")}
   catch(e){const r=document.createRange();r.selectNodeContents($("rel"));const s=getSelection();s.removeAllRanges();s.addRange(r);toast("Selecionado – copie com Ctrl+C")}};
 
-function aba(c){$("viewV").hidden=c;$("viewC").hidden=!c;
-  $("tabV").setAttribute("aria-selected",!c);$("tabC").setAttribute("aria-selected",c)}
-$("tabV").onclick=()=>aba(false);$("tabC").onclick=()=>aba(true);
+function aba(n){["V","C","P"].forEach(k=>{$("view"+k).hidden=k!==n;$("tab"+k).setAttribute("aria-selected",k===n)})}
+$("tabV").onclick=()=>aba("V");$("tabC").onclick=()=>aba("C");$("tabP").onclick=()=>aba("P");
 $("preco").value=S.preco;
 render();
 </script>
